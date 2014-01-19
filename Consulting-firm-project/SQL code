@@ -1,0 +1,253 @@
+/*
+Table Creation
+
+1. The order of creating the tables matters because of reference issue..
+2. I want to add a constraint so that DOB is between 1900-01-01 and SysDate, But I don’t know how to do it.
+3. There are a few constraints like minimum base salary and positive amount of money.
+4. IDs are made to be in number instead of varchar2.
+*/
+
+Create Table Office1 (
+OfficeID number(2,0) not null,
+City varchar2(30) not null,
+StateProvince varchar2(30) not null,
+Country varchar2(40) not null,
+PhoneNum number(20,0) not null,
+RegionPrefix varchar2(2) not null,
+Constraint OffPK Primary Key(OfficeID))
+
+
+Create Table Salary (
+LevelID number(2,0) Not Null,
+Department varchar2(20) Null,
+Position varchar2(20) not null,
+BaseSalary number(7,0) not null,
+CONSTRAINT SalPK Primary Key(LevelID),
+CONSTRAINT SalBase Check(BaseSalary>30000))
+
+
+
+CREATE TABLE Employee1 (
+EmployeeID Number(6,0) Not Null,
+FName varchar2(20) Not Null,
+MName varchar2(20) Null,
+LName varchar2(30) Not Null,
+DOB Date Not Null,
+HiredDate varchar2(20) Not Null,
+Education varchar2(20) Null,
+OfficeID number(2,0) Not Null,
+Address varchar2(70) Null,
+PhoneNum number(20,0) Not Null,
+LevelID number(2,0) Not Null,
+Supervisor Number(6,0) Null,
+Constraint Emp1PK Primary Key(EmployeeID),
+Constraint Emp1FK1 Foreign Key (OfficeID) References Office1 (OfficeID),
+Constraint Emp1FK2 Foreign Key (LevelID) References Salary (LevelID),
+Constraint Emp1FK3 Foreign Key (Supervisor) References Employee1 (EmployeeID))
+
+CREATE INDEX Emp1Name On Employee1 ( LName, FName, MName)
+
+
+CREATE TABLE Client(
+ClientID Number(6,0) Not Null,
+ClientName varchar2(35) Not Null,
+PhoneNum number(20,0) Not Null,
+Industry varchar2(30) Null,
+RegionPrefix varchar2(2) Not Null,
+Address varchar2(70) Not Null,
+City varchar2(30) Not Null,
+State varchar2(30) Not Null,
+Country varchar2(40) Not Null,
+Fax number(20,0) Null,
+Constraint CliPK Primary Key(ClientID))
+
+ 
+Create Table ClientContact(
+ClientContactID number(5,0) Not Null,
+FName varchar2(20) Not Null,
+MName varchar2(20) Null,
+LName varchar2(30) Not Null,
+ClientID number(6,0) Not Null,
+WorkPhone number(20,0) Not Null,
+CellPhone number(20,0) Not Null,
+Notes varchar2(225) Null,
+Email varchar2(40) Not Null,
+Constraint ClCPK Primary Key(ClientContactID),
+Constraint CICFK Foreign Key(ClientID) References Client(ClientID))
+
+
+//Upload data
+ 
+Create Table Project1(
+ProjectID number(6,0) Not Null,
+ProjectName varchar2(30) Not Null,
+ClientID number(6,0) Not Null,
+ClientContactID number(5,0) Not Null,
+StartDate Date Not Null,
+AnticipatedEndDate Date Null,
+Budget Number(12,0) Null,
+ProjectManager Number(6,0) Not Null,
+Revenue Number(12,0) Not Null,
+Constraint PrjPK Primary Key(ProjectID),
+Constraint PrjFK1 Foreign Key(ClientID) References Client(ClientID),
+Constraint PrjFK2 Foreign Key(ClientContactID) References ClientContact(ClientContactID),
+Constraint PrjFK3 Foreign Key(ProjectManager) References Employee1(EmployeeID),
+Constraint PrjBgt Check(Budget>0),
+Constraint PrjRev Check(Revenue>0))
+
+
+Create Table Assignment(
+ProjectID number(6,0) Not Null,
+EmployeeID Number(4,0) Not Null,
+EnterDate Date Not Null,
+Bonus number(7,0) null,
+Constraint AssgmtPK Primary Key(ProjectID, EmployeeID),
+Constraint AssgmtFK1 Foreign Key(ProjectID) References Project1(ProjectID),
+Constraint AssgmtFK2 Foreign Key(EmployeeID) References Employee1(EmployeeID),
+Constraint AssgmtBns Check(Bonus>0))
+
+
+
+Create Table Expense(
+ExpenseID number(7,0) Not Null,
+ProjectID number(6,0) Not Null,
+EmployeeID Number(4,0) Not Null,
+HappenDate Date Not Null,
+Affair varchar2(200) Not Null,
+Amount number(8,2) Not Null,
+Constraint ExpPK Primary Key(ExpenseID),
+Constraint ExpFK1 Foreign Key(ProjectID) References Project1(ProjectID),
+Constraint ExpFK2 Foreign Key(EmployeeID) References Employee1(EmployeeID),
+Constraint ExpAmount Check(Amount>0))
+
+
+/*
+Queries
+
+1. human resource stats(1). How many people of each level (department)?
+*/
+create view countbylevel as
+select levelID LID, count(employeeID) Num
+from  employee1
+group by (levelID)
+
+select position, countbylevel.num
+from salary inner join countbylevel on salary.levelid=countbylevel.lid
+
+/*
+2. human resource stats(2). How many people in each office?
+*/
+select office1.officeid, city, stateprovince, country, numemp
+from office1 left outer join (
+select officeID offid, count(employeeID) numemp
+from employee1
+group by officeID)
+on office1.officeid=offid
+
+/*
+3. human resource stats(3). Number of people directly in charge of (being in charged of)? 
+We didn’t have the supervisor data so the result of this query should be empty.
+*/
+SELECT B.FName || ' ' || B.LName As Boss, Count(S.EmployeeID) As Supervised 
+FROM Employee1 S Inner Join Employee1 B 
+ON S.Supervisor=B.EmployeeID 
+GROUP BY B.EmployeeID, B.FName, B.LName 
+ORDER BY B.LName, B.FName
+
+/*
+4. income add-up(1). employees’ base salary+bonus?
+*/
+create view everyonesbasesalary as
+select employeeID, officeID, basesalary
+from employee1 inner join salary on employee1.levelid=salary.levelid
+
+create view everyonesbonus as
+select employee1.employeeID, officeID, bonussum
+from employee1 left outer join (
+select employeeID EmpID, sum(bonus) bonussum
+from assignment
+group by employeeID)
+on employee1.employeeID=EmpID
+
+create view everyonesincome as
+select everyonesbasesalary.employeeID EmpID, everyonesbasesalary.officeID, basesalary+bonussum income
+from everyonesbasesalary left outer join everyonesbonus on everyonesbasesalary.employeeID=everyonesbonus.employeeID
+
+/*
+5. income add-up(2). average employee income for each office
+*/
+select officeID, city, stateprovince, country, avgincome
+from office1 left outer join (
+select officeID offID, round(avg(income),2) avgincome
+from everyonesincome
+group by officeID)
+on officeID=offID
+
+/*
+6. Budget check. How much is left in each project’s budget?
+*/
+select projectID, projectname, budget-spent leftover
+from project1 p left outer join (
+select projectID pID, sum(amount) spent
+from expense
+group by projectID
+) on projectID=pID
+
+/*
+7. Employees’ expense. Expense associated with each employee?
+*/
+select employeeID, fname||' '||lname fullname, expamount
+from employee1 left outer join (
+select employeeID EmpID, sum(amount) expamount
+from expense
+group by employeeID)
+on employeeID=EmpID
+
+/*
+8. client revenue contribution.
+*/
+select clientname, revenuecontribution
+from client left outer join (
+select clientID CID, sum(revenue) revenuecontribution
+from project1
+group by clientID)
+on clientID=CID
+order by revenuecontribution desc
+
+/*
+9. office revenue ranking.
+*/
+create view managersrevenue as
+select pm, fname||' '||lname fullname, officeID, totalrev
+from employee1 inner join(
+select projectmanager PM, sum(revenue) totalrev
+from project1
+group by projectmanager)
+on employeeID=PM
+
+select office1.officeid, city, stateprovince, country, offrev
+from office1 left outer join (
+select officeid offid, sum(totalrev) offrev
+from managersrevenue
+group by officeid)
+on office1.officeid=offid
+order by offrev
+
+/*
+10. Project scale. How many people work for each project and how many people each project manager is leading?
+*/
+create view projectscale as
+select projectID, count(employeeID) prjscale
+from assignment
+group by projectID
+
+select fname||' '||lname fullname, projectID, prjscale
+from employee1 inner join (
+select project1.projectmanager, project1.projectID, prjscale
+from project1 left outer join projectscale
+on project1.projectID=projectscale.projectID)
+on projectmanager=employeeID
+
+/*
+The end
+*/
