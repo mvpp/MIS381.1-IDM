@@ -1,0 +1,150 @@
+In class, Professor Mote once raised a question, “How many people are under me, say, managed directly and indirectly by me?” He and our classmates took some shot about this question like loop or trace, but some of them are just conceptual, and the others didn't seem adequate either. Out of curiosity of the answer to this problem, we started to investigate in depth to find a feasible, elegant solution. And here is our answer.
+   
+A tree is a connected, undirected, acyclic graph. Tree structure is very commonly used by many applications which need to manage a large quantity of data. In the SQL tree query, the most important commands are “select”, “start with”, ”connect by” and “prior”. We can perform a table structure in the order of a tree. We describe the using of tree query and the characteristic functions associated with the tree query. For the sake of brevity, we only use tree query on one table.
+
+The following is the table structure of the employee example mentioned in class:
+CREATE TABLE Employee ( 
+EID Varchar2(10) Not Null,
+FName Varchar2(20) Not Null, 
+MName Varchar2(20) Null, 
+LName Varchar2(30) Not Null, 
+JobTitle Varchar2(30) Not Null, 
+Salary Number(10,2) Not Null, 
+OID Varchar2(5) Not Null, 
+Constraint EmployeePK Primary Key (EID), 
+Constraint EmployeeOfficeFK Foreign Key (OID) 
+ References Office (OID), 
+Constraint EmployeeSalary Check (Salary>0) ) 
+
+ALTER TABLE Employee 
+ADD ( Supervisor Varchar2(10) Null )
+
+ 
+1. Query all the top-level parent nodes in the tree.
+Suppose the tree is a directory structure, the first action would be to find all the top-level nodes. Then find the subordinate node based on the top-level nodes we find.
+SELECT *
+FROM Employee WHERE Supervisor is Null;
+
+2. Query child nodes of a node.
+We will not need to use a tree query if we want to query subordinate nodes.
+SELECT *
+FROM Employee WHERE Supervisor='K54456'
+
+3. Query all the subordinate nodes of a node.
+Here we want to query all the subordinate nodes under the node with EID='K54456', including child nodes and grandson nodes.
+SELECT *
+FROM Employee
+START WITH  EID='K54456'
+
+CONNECT BY Supervisor=PRIOR EID;
+
+4. Query a parent node.
+In this part, we want to find the parent node of EID 'K54456'. We need to use the JOIN function.
+SELECT b.*
+FROM Employee a 
+JOIN Employee b ON a. supervisor=b. EID
+WHERE a.EID= 'K54456'
+
+5. Query all the parent nodes of a node.
+SELECT *
+FROM Employee
+START WITH EID='K54456'
+CONNECT BY PRIOR Supervisor=EID;
+In this example, we are querying all the parent nodes of EID 'K54456'.
+ 
+Point three and five above are using the tree query. The difference between these two is the position of PRIOR. When Supervisor=PRIOR EID, the database will find all items that have the same Supervisor with this EID. In this way, it list all the child nodes. When PRIOR EID=Supervisor, the database will find out all the items that have the same EID with the Supervisor. The result will include all the parent nodes.
+
+6. Query a brother node.
+SELECT a.*
+FROM Employee a
+WHERE EXISTS(SELECT *
+    FROM Employee b
+    WHERE a.Supervisor=b.Supervisor AND b.EID= 'K54456' )
+Here, we query the nodes that belong to the same nodes as EID 'K54456'.
+
+7. Query nodes in the same level.
+If we set level, just as the FLJB in the above table, it will be easy to query the same level nodes.
+ 
+WITH tmp AS
+  (SELECT	a.*, LEVEL lev
+     FROM Employee a
+  START WITH a.Supervisor IS NULL
+  CONNECT BY a.Supervisor= PRIOR a.EID)
+SELECT*
+FROM tmp
+WHERE lev=( SELECT lev
+    FROM tmp
+    WHERE EID= ‘K54456')
+ 
+We use LEVEL to label the level of each node in our table. We also use WITH to describe a temporary table which includes levels.
+ 
+8. Query a brother node of a node's parent node.
+
+WITH tmp AS
+   ( SELECT   Employee.*, LEVEL lev
+     FROM Employee
+  START WITH Supervisor IS NULL
+  CONNECT By Supervisor= PRIOR EID)
+SELECT b.*
+ FROM tmp b,
+ (SELECT*
+FROM tmp
+WHERE EID=‘K54456' AND lev=2) a
+WHERE b.lev=1
+UNION ALL
+SELECT*
+FROM tmp
+WHERE Supervisor=(SELECT DISTINCT x.EID
+                    	        FROM tmp x,
+                            	Tmp y,
+                           	(SELECT*
+                           	FROM tmp
+                            	WHERE EID='K54456' AND lev>2) z
+                        	WHERE y.EID=z.Supervisor AND x.EID=y.Supervisor);
+
+To finish this query, we have four steps to follow. First, give levels to all the tables. Second, decide the types of nodes according to the levels. In this example, we have three types. (1) when the node is top-level node, it means the node doesn't have any higher level nodes. We don't need to consider this situation. (2) When the level is 2, then the level 1 is the brother node of its upper-level node. (3) For all other situations, we need to find out the nodes that are two levels higher than current node and then find out the brother nodes. Final step is using UNION to combine the query result.
+ 
+9. Query the nodes that are in the same level with the parent level of current node (uncles).
+WITH tmp AS
+   ( SELECT a.*, LEVEL lev
+    FROM Employee a
+   START WITH a.Supervisor IS NULL
+   CONNECT BY a. Supervisor=PRIOR a.EID)
+SELECT *
+FROM tmp
+WHERE lev=(SELECT lev
+     FROM tmp
+    WHERE EID= ‘K54456') - 1
+Basically,  all of the queries above are the basic information about nodes. They are all from the table, which includes some special values needed for a tree query.
+ 
+The following are a few special commands that are possible with a tree structure.
+10. List the whole path to the node of interest
+There are two ways to do this: the first is to start from the top level, then go to the current node. The other way is to start from the current node and go to the top level node.
+SELECT SYS_CONNECT_BY_PATH(mc,'/')
+  FROM Employee
+  WHERE EID='K54456'
+START WITH Supervisor IS NULL
+CONNECT BY Supervisor=PRIOR EID;
+ 
+Or
+ 
+SELECT SYS_CONNECT_BY_PATH(mc,'/')
+    FROM Employee
+START WITH EID='K54456'
+CONNECT BY PRIOR Supervisor=EID;
+ 
+11. List the root node of the current node
+SELECT CONNECT_BY_ROOT mc, Employee.*
+    FROM Employee
+START WITH EID='K54456'
+CONNECT BY PRIOR Supervisor=EID:
+ 
+We use CONNECT_BY_ROOT to record the root of current node.
+ 
+12. Check whether the current node is a leaf.
+SELECT CONNECT_BY_ISLEAF, Employee.*
+   FROM Employee
+START WITH Supervisor IS NULL
+CONNECT BY Supervisor=PRIOR EID;
+ 
+Use CONNECT_BY_ISLEAF to decide whether the current node contains any lower level nodes. If there are, then the current node is not leaf. Otherwise, the current node is leaf and returns to 1. 
